@@ -30,6 +30,16 @@ Without it, the built-in offline reader (English + Malay basics) is used. Other 
 5. In the app: You > Reminders when the app is closed > paste the **public** key > Turn on background reminders. Do this on each device.
 iPhone: Add to Home Screen first (iOS 16.4+), then open from the Home Screen icon. Android Chrome works directly.
 
+## 6. Microsoft 365 Copilot as the task interpreter (preview)
+Uses Microsoft's **Copilot Chat API** (Graph `beta`). Microsoft's docs say beta APIs are not supported for production use, it needs a **work or school account with a Microsoft 365 Copilot licence** (personal Microsoft accounts are not supported), and it returns text only, so MOMENTUM asks Copilot for JSON and validates it before showing the preview.
+1. Entra admin center > App registrations > New registration. Account type: your org only (or multi-tenant if you need it).
+2. Redirect URI: platform **Single-page application (SPA)**, value = your app URL, e.g. `https://YOUR-NAME.github.io/momentum/` (must match exactly, trailing slash included).
+3. API permissions > Microsoft Graph > **Delegated**: `Sites.Read.All, Mail.Read, People.Read.All, OnlineMeetingTranscript.Read.All, Chat.Read, ChannelMessage.Read.All, ExternalItem.Read.All`. Microsoft requires all seven for this API. Then an admin must **Grant admin consent**.
+4. Copy the **Application (client) ID** and **Directory (tenant) ID**.
+5. App > You > Microsoft 365 Copilot: paste both > Connect Microsoft > sign in > tick "Use Copilot to understand pasted text".
+The prompt tells Copilot not to use web search, files, mail or chats, and the pasted text is wrapped as untrusted data. You still approve every task before it is saved. If Copilot fails, the app falls back to the offline reader.
+Privacy: when this is on, the text you paste goes to Microsoft 365 Copilot (the sheet says so each time). The seven permissions are broad read access that Microsoft requires for the API itself; MOMENTUM does not read your mail or files.
+
 ## What is in V2 now
 - **Storage:** IndexedDB (existing localStorage data is moved automatically).
 - **Routines:** Tasks tab > New routine. One step at a time, optional daily reminder time. Stored on this device (not synced yet).
