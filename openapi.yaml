@@ -1,0 +1,15 @@
+# Actions for a Microsoft 365 Copilot declarative agent (API plugin). Host = your Supabase function URL.
+# Check Microsoft's CURRENT docs/licensing for API plugins and MCP before publishing: availability varies by tenant and licence.
+openapi: 3.0.1
+info: { title: MOMENTUM, version: "1.0.0", description: "Create and manage the user's tasks. Always confirm with the user before creating multiple tasks." }
+servers: [ { url: "https://YOUR-PROJECT.supabase.co/functions/v1/api" } ]
+components:
+  securitySchemes: { oauth: { type: oauth2, flows: { authorizationCode: { authorizationUrl: "https://YOUR-PROJECT.supabase.co/auth/v1/authorize", tokenUrl: "https://YOUR-PROJECT.supabase.co/auth/v1/token", scopes: {} } } } }
+security: [ { oauth: [] } ]
+paths:
+  /tasks:
+    post: { operationId: createTask, summary: Create one task, requestBody: { required: true, content: { application/json: { schema: { type: object, required: [title], properties: { title: { type: string, maxLength: 120 }, deadline: { type: string, format: date-time }, scheduledAt: { type: string, format: date-time }, steps: { type: array, items: { type: string } } } } } } }, responses: { "201": { description: Created } } }
+  /tasks/today: { get: { operationId: getTodayTasks, summary: List today's open tasks, responses: { "200": { description: OK } } } }
+  /tasks/current: { get: { operationId: getCurrentTask, summary: Get the single task to do now, responses: { "200": { description: OK } } } }
+  /tasks/{id}/complete: { post: { operationId: completeTask, summary: Mark a task done, parameters: [ { name: id, in: path, required: true, schema: { type: string, format: uuid } } ], responses: { "200": { description: OK } } } }
+  /tasks/{id}/snooze: { post: { operationId: rescheduleTask, summary: Move a task to a later time, parameters: [ { name: id, in: path, required: true, schema: { type: string, format: uuid } } ], requestBody: { content: { application/json: { schema: { type: object, properties: { until: { type: string, format: date-time } } } } } }, responses: { "200": { description: OK } } } }
