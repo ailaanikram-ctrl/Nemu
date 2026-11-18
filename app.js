@@ -95,9 +95,14 @@ if(typeof document==='undefined')throw 0;
 const $=q=>document.querySelector(q);
 const esc=x=>String(x==null?'':x).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const uid=()=>crypto.randomUUID?crypto.randomUUID():'id'+Date.now()+Math.random().toString(16).slice(2);
-const DEF={tasks:[],skip:[],level:{starts:0,done:0},lastOpen:null,cfg:{lang:'en',theme:'system',large:false,mode:'balanced',qs:'22:00',qe:'07:00',maxRem:3,priv:false,persona:'gentle',energy:null,sbUrl:'',sbKey:'',aiUrl:'',lastSync:null},session:null,onboarded:false};
-let S;try{S=Object.assign({},DEF,JSON.parse(localStorage.getItem('mm')||'{}'));S.cfg=Object.assign({},DEF.cfg,S.cfg)}catch(e){S=JSON.parse(JSON.stringify(DEF))}
-const save=()=>{try{localStorage.setItem('mm',JSON.stringify(S))}catch(e){}};
+const DEF={tasks:[],routines:[],cal:[],ev:[],fm:0,skip:[],level:{starts:0,done:0},lastOpen:null,cfg:{lang:'en',theme:'system',large:false,mode:'balanced',qs:'22:00',qe:'07:00',maxRem:3,priv:false,persona:'gentle',energy:null,sbUrl:'',sbKey:'',aiUrl:'',vapid:'',autoSmall:false,lastSync:null},session:null,onboarded:false};
+let S=JSON.parse(JSON.stringify(DEF));
+/* IndexedDB store (falls back to localStorage if IDB is unavailable) */
+const idb=()=>new Promise((res,rej)=>{const r=indexedDB.open('momentum',1);r.onupgradeneeded=()=>r.result.createObjectStore('kv');r.onsuccess=()=>res(r.result);r.onerror=()=>rej(r.error)});
+async function idbGet(k){try{const d=await idb();return await new Promise(r=>{const q=d.transaction('kv').objectStore('kv').get(k);q.onsuccess=()=>r(q.result);q.onerror=()=>r(null)})}catch(e){return null}}
+let _st=0;const flush=async()=>{try{const d=await idb();d.transaction('kv','readwrite').objectStore('kv').put(JSON.parse(JSON.stringify(S)),'state')}catch(e){try{localStorage.setItem('mm',JSON.stringify(S))}catch(x){}}};
+const save=()=>{clearTimeout(_st);_st=setTimeout(flush,120)};
+addEventListener('pagehide',()=>flush());
 const L={en:{today:'Today',tasks:'Tasks',focus:'Focus',you:'You',now:'Now',next:'Next',later:'Later',start:'Start now',two:'Start for 2 minutes',smaller:'Make it smaller',notthis:'Not this',done:'Done',choose:'Help me choose',paste:'Paste something',pasteSub:'Message, email, instructions, notes… anything.',dump:'Brain dump',empty:'Nothing here yet. Paste something and I will find the tasks.'},
 ms:{today:'Hari ini',tasks:'Tugasan',focus:'Fokus',you:'Anda',now:'Sekarang',next:'Seterusnya',later:'Kemudian',start:'Mula sekarang',two:'Mula 2 minit',smaller:'Kecilkan',notthis:'Bukan ini',done:'Siap',choose:'Bantu saya pilih',paste:'Tampal sesuatu',pasteSub:'Mesej, e-mel, arahan, nota… apa-apa.',dump:'Curah fikiran',empty:'Belum ada apa-apa. Tampal sesuatu dan saya cari tugasannya.'}};
 const t_=k=>(L[S.cfg.lang]||L.en)[k]||L.en[k]||k;
@@ -139,18 +144,18 @@ async function plan(text,mode){
     out=validate(await r.json());prov='AI'}catch(e){out=null}}
   if(!out)out=validate(extract(text,mode));
   PV={text,out,prov,on:out.tasks.map(()=>true),rem:{},keep:true};sheetPreview()}
-function complete(id){const t=byId(id);if(!t)return;t.status='done';t.doneAt=new Date().toISOString();S.level.done++;touch(t);
+function complete(id){const t=byId(id);if(!t)return;t.status='done';t.doneAt=new Date().toISOString();S.level.done++;ev('done');touch(t);
   const kids=live().filter(x=>x.status==='waiting'&&x.cond&&x.cond.parentId===id);
   if(kids.length){sheet(`<h1>One quick check</h1>`+kids.map(k=>`<div class="card"><p><b>${esc(k.title)}</b></p><p class="mute">Only if: ${esc(k.cond.text)}</p><div class="row"><button class="btn p" data-a="yes" data-id="${k.id}">Yes, it applies</button><button class="btn" data-a="no" data-id="${k.id}">No, skip it</button></div></div>`).join(''))}
   else toast('Done. Nice start.');render()}
-function breakDown(id){const t=byId(id);if(!t)return;sheet(`<h1>${esc(t.title)}</h1><p class="mute">First step</p><div class="card now"><h1>${esc(firstStep(t))}</h1></div>
+function breakDown(id){const t=byId(id);if(!t)return;t.usedSmall=true;ev('small');touch(t);sheet(`<h1>${esc(t.title)}</h1><p class="mute">First step</p><div class="card now"><h1>${esc(firstStep(t))}</h1></div>
   <div class="row"><button class="btn p" data-a="two" data-id="${id}">Start first step (2 min)</button><button class="btn" data-a="steps" data-id="${id}">Show all steps</button></div>`)}
 
 /* ================= Focus ================= */
-function startFocus(id,secs,mode){const t=byId(id);if(!t)return;S.level.starts++;t.startedAt=t.startedAt||new Date().toISOString();touch(t);
+function startFocus(id,secs,mode){const t=byId(id);if(!t)return;S.level.starts++;ev('start');t.startedAt=t.startedAt||new Date().toISOString();touch(t);
   F={id,total:secs,end:Date.now()+secs*1000,mode,paused:null};closeSheet();tab='focus';render();clearInterval(startFocus.i);startFocus.i=setInterval(tick,500)}
 function tick(){if(!F||F.paused)return;const left=Math.max(0,Math.round((F.end-Date.now())/1000));
-  if(left<=0){clearInterval(startFocus.i);F.over=true;if(F.mode==='two')sheetTwoDone();else toast('Time is up');if(tab==='focus')render();return}
+  if(left<=0){clearInterval(startFocus.i);F.over=true;S.fm+=F.total;save();if(F.mode==='two')sheetTwoDone();else toast('Time is up');if(tab==='focus')render();return}
   const b=$('#fb');if(b){b.textContent=mm(left);const c=$('#fc');c.style.strokeDashoffset=String(754*(1-left/F.total))}}
 const mm=s=>String(Math.floor(s/60)).padStart(2,'0')+':'+String(s%60).padStart(2,'0');
 function sheetTwoDone(){const t=byId(F.id);sheet(`<h1>You’re already moving.</h1><p class="mute">Starting counts.</p><div class="row"><button class="btn p" data-a="keep" data-id="${t.id}">Keep going</button><button class="btn ok" data-a="finish" data-id="${t.id}">Done</button><button class="btn" data-a="brk">Take a break</button></div>`)}
@@ -161,7 +166,7 @@ async function notify(t){const body=S.cfg.priv?'You have a scheduled reminder.':
   try{const r=await navigator.serviceWorker.ready;if(Notification.permission==='granted'){await r.showNotification(S.cfg.priv?'MOMENTUM':t.title,o);return}}catch(e){}
   toast(t.title+' — '+noteTxt(t))}
 function checkReminders(){const now=Date.now(),max=S.cfg.mode==='gentle'?1:S.cfg.mode==='balanced'?Math.min(2,S.cfg.maxRem):S.cfg.maxRem,gap=15*60000;
-  if(quiet())return;live().forEach(t=>{if(t.status!=='open'||!t.remindAt||F&&F.id===t.id)return;
+  if(quiet())return;routineDue();live().forEach(t=>{if(t.status!=='open'||!t.remindAt||F&&F.id===t.id)return;
     const at=Date.parse(t.remindAt);if(now<at)return;if(t.remCount>=max)return;if(t.lastRem&&now-t.lastRem<gap)return;
     t.remCount++;t.lastRem=now;notify(t);save()})}
 function snoozeSheet(id){sheet(`<h1>Snooze</h1><div class="chips">${[5,15,30].map(m=>`<button class="btn" data-a="sn" data-m="${m}" data-id="${id}">${m} min</button>`).join('')}</div>
@@ -175,7 +180,7 @@ async function sync(){if(syncing||!S.cfg.sbUrl||!S.session||!navigator.onLine)re
     if(dirty.length){const r=await fetch(u+'?select=id,updated_at&id=in.('+dirty.map(t=>t.id).join(',')+')',{headers:H()});const srv=await r.json();
       const conf=dirty.filter(t=>{const s=srv.find(x=>x.id===t.id);return s&&t.baseV&&s.updated_at!==t.baseV});
       conf.forEach(t=>{t.conflict=true});const okT=dirty.filter(t=>!t.conflict);
-      if(okT.length){const rows=okT.map(t=>({id:t.id,title:t.title,status:t.status,deadline:t.deadline,scheduled_at:t.scheduledAt,deleted:!!t.deleted,updated_at:t.updatedAt,data:strip(t)}));
+      if(okT.length){const rows=okT.map(t=>({id:t.id,title:t.title,status:t.status,deadline:t.deadline,scheduled_at:t.scheduledAt,deleted:!!t.deleted,reminder_at:t.status==='open'?t.remindAt:null,updated_at:t.updatedAt,data:strip(t)}));
         const w=await fetch(u+'?on_conflict=id',{method:'POST',headers:Object.assign(H(),{Prefer:'resolution=merge-duplicates,return=representation'}),body:JSON.stringify(rows)});
         if(w.ok){(await w.json()).forEach(x=>{const t=byId(x.id);if(t){t.baseV=x.updated_at;t.dirty=false}})}}
       if(conf.length)conflictSheet()}
@@ -207,7 +212,7 @@ function sheetPreview(){const o=PV.out;
   (o.tasks.length?o.tasks.map((p,i)=>`<div class="card pv"><input type="checkbox" data-a="tog" data-i="${i}" ${PV.on[i]?'checked':''} aria-label="Include"><div class="t">
     <input type="text" data-a="ttl" data-i="${i}" value="${esc(p.title)}" aria-label="Task title">
     <p class="small" style="margin-top:8px">${p.deadline?`<span class="tag ex">Deadline</span>${esc(due(p))}`:p.day||p.fuzzy?`${src(p.daySource)}${esc(due(p))}`:'<span class="tag">Deadline: not provided</span>'}</p>
-    ${p.afterIdx!=null?`<p class="small mute">After: ${esc(o.tasks[p.afterIdx].title)}</p>`:''}${p.condition?`<p class="small"><span class="tag u">Only if</span>${esc(p.condition.text)}</p>`:''}${p.note?`<p class="small mute">${esc(p.note)}</p>`:''}
+    ${p.afterIdx!=null?`<p class="small mute">After: ${esc(o.tasks[p.afterIdx].title)}</p>`:''}${p.condition?`<p class="small"><span class="tag u">Only if</span>${esc(p.condition.text)}</p>`:''}${p.note?`<p class="small mute">${esc(p.note)}</p>`:''}${p.scheduledAt&&clash(p.scheduledAt)?`<p class="small"><span class="tag u">Busy</span>${esc(clash(p.scheduledAt).t)} until ${fmtT(clash(p.scheduledAt).e)} <button class="btn" data-a="aft" data-i="${i}">Schedule after it</button></p>`:''}
     ${p.remindAt?`<p class="small">${src(p.remindSource)}Reminder ${fmtT(p.remindAt)}</p>`:p.day?`<p class="small">Reminder: <select data-a="rem" data-i="${i}" aria-label="Reminder time"><option value="">None</option><option value="08:00">8:00</option><option value="09:00">9:00</option><option value="19:00">7:00 PM</option></select></p>`:''}
     </div></div>`).join(''):`<div class="card"><p>No tasks found. Try a clearer sentence, or use Brain dump.</p></div>`)+
   (o.uncertain.length?`<div class="card"><p class="small"><b>Not sure about</b></p>${o.uncertain.map(u=>`<p class="small mute">${esc(u)}</p>`).join('')}</div>`:'')+
@@ -217,9 +222,11 @@ function card(t,big){const nowLbl=t.minutes?'About '+t.minutes+' min':'';return`
 function renderToday(){const r=ranked(),n=r[0],h=new Date().getHours();
   const hi=h<12?'Good morning.':h<18?'Hello.':'Good evening.';let x=`<h1>${hi}</h1><p class="mute">${S.level.done<1&&S.level.starts<1?'Let’s make today manageable.':'One small thing at a time.'}</p>`;
   x+=`<div class="chips" style="margin:10px 0"><span class="small mute">Energy</span>${['low','medium','high'].map(e=>`<button class="btn" data-a="en" data-v="${e}" aria-pressed="${S.cfg.energy===e}" style="${S.cfg.energy===e?'border-color:var(--pri);background:var(--priS)':''}">${e[0].toUpperCase()+e.slice(1)}</button>`).join('')}</div>`;
+  const ad=live().find(t=>t.status==='open'&&t.snooze>=3&&!t.adaptDismissed&&t.origRemind);
+  if(ad)x+=`<div class="card"><p><b>${fmtT(ad.origRemind)} doesn’t seem to be working for “${esc(ad.title)}”.</b></p><p class="mute">Want to try 8 PM?</p><div class="row"><button class="btn p" data-a="try" data-id="${ad.id}">Try it</button><button class="btn" data-a="keept" data-id="${ad.id}">Keep ${fmtT(ad.origRemind)}</button></div></div>`;
   if(n){x+=`<h2>${t_('now')}</h2><div class="card now"><h1>${esc(n.title)}</h1><p class="mute">${esc(due(n))}${n.deadline&&!n.dateOnly?' · '+mins(n.deadline):''}</p>
     ${n.deadline?`<div class="bar" aria-hidden="true"><i style="width:${pct(n)}%"></i></div>`:''}<p style="margin-top:12px"><b>First step:</b> ${esc(firstStep(n))}</p>
-    <div class="row"><button class="btn p" data-a="go25" data-id="${n.id}">${t_('start')}</button><button class="btn" data-a="two" data-id="${n.id}">${t_('two')}</button></div>
+    <div class="row"><button class="btn p" data-a="${S.cfg.autoSmall?'two':'go25'}" data-id="${n.id}">${t_('start')}</button><button class="btn" data-a="two" data-id="${n.id}">${t_('two')}</button></div>
     <div class="row"><button class="btn ok" data-a="fin" data-id="${n.id}">${t_('done')}</button><button class="btn" data-a="sm" data-id="${n.id}">${t_('smaller')}</button><button class="btn" data-a="skip" data-id="${n.id}">${t_('notthis')}</button><button class="btn" data-a="snz" data-id="${n.id}">Snooze</button></div></div>`;
     const nx=r.slice(1,3);if(nx.length)x+=`<h2>${t_('next')}</h2>`+nx.map(t=>card(t)).join('');
     if(r.length>3)x+=`<details><summary class="mute" style="min-height:48px;cursor:pointer">${t_('later')} (${r.length-3})</summary>${r.slice(3).map(t=>card(t)).join('')}</details>`}
@@ -231,7 +238,7 @@ const pct=t=>{const a=Date.parse(t.createdAt),b=Date.parse(t.deadline);return Ma
 function renderTasks(){const a=live().filter(t=>t.status!=='done'&&t.status!=='cancelled');let x='<h1>Tasks</h1>';
   x+=a.length?a.map(t=>`<div class="card"><p style="margin:0;font-weight:700">${esc(t.title)}</p><p class="small mute">${esc(due(t))}${t.status==='waiting'?' · waiting: '+esc(t.cond.text):''}${t.afterId&&byId(t.afterId)&&byId(t.afterId).status!=='done'?' · after: '+esc(byId(t.afterId).title):''}</p>
    <div class="row"><button class="btn ok" data-a="fin" data-id="${t.id}">Done</button><button class="btn" data-a="sm" data-id="${t.id}">Make smaller</button><button class="btn" data-a="del" data-id="${t.id}">Remove</button></div></div>`).join(''):`<div class="card"><p>${t_('empty')}</p></div>`;
-  const d=live().filter(t=>t.status==='done').length;return x+`<p class="small mute">${d} finished</p>`}
+  const d=live().filter(t=>t.status==='done').length;return x+`<p class="small mute">${d} finished</p>`+routinesHtml()}
 function renderFocus(){if(!F)return`<h1>Focus</h1><div class="card"><p>Pick a task on Today, then press Start. Or try 2 minutes: you don’t need to finish, just begin.</p></div><div class="row"><button class="btn p w" data-a="go" data-t="today">Go to Today</button></div>`;
   const t=byId(F.id),left=F.paused!=null?Math.round(F.paused/1000):Math.max(0,Math.round((F.end-Date.now())/1000));
   return`<p class="mute" style="text-align:center">${F.mode==='two'?'You don’t need to finish. Just begin.':'Focus'}</p><h1 style="text-align:center">${esc(t.title)}</h1>
@@ -250,7 +257,7 @@ function renderYou(){const c=S.cfg;const sel=(k,v,o)=>`<select data-a="cfg" data
   <input type="text" data-a="cfg" data-k="sbUrl" value="${esc(c.sbUrl)}" placeholder="Supabase project URL" aria-label="Supabase URL"><p></p><input type="text" data-a="cfg" data-k="sbKey" value="${esc(c.sbKey)}" placeholder="Supabase anon key" aria-label="Supabase key"><p></p>
   <input type="text" data-a="cfg" data-k="aiUrl" value="${esc(c.aiUrl)}" placeholder="AI endpoint (optional)" aria-label="AI endpoint"><p></p>
   ${S.session?`<div class="row"><button class="btn p" data-a="syncnow">Sync now</button><button class="btn" data-a="out">Sign out</button></div>`:`<input type="email" id="em" placeholder="Email" aria-label="Email"><p></p><input type="password" id="pw" placeholder="Password" aria-label="Password"><div class="row"><button class="btn p" data-a="in">Sign in</button><button class="btn" data-a="up">Create account</button></div>`}</div>
-  <div class="card"><p><b>Your data</b></p><div class="row"><button class="btn" data-a="exp">Export</button><button class="btn" data-a="wipe">Delete originals</button></div></div>`}
+  ${statsCard()}${extraCard()}<div class="card"><p><b>Your data</b></p><div class="row"><button class="btn" data-a="exp">Export</button><button class="btn" data-a="wipe">Delete originals</button></div></div>`}
 function render(){const v=$('#view');
   if(!S.onboarded){v.innerHTML=`<h1>MOMENTUM</h1><p class="mute">Don’t just remember it. Start it.</p><div class="card"><p>What usually gets in your way?</p><div class="chips">${['I forget','I procrastinate','I lose track of time','Tasks feel too big','I ignore notifications','I struggle to start','I get overwhelmed'].map(x=>`<label class="btn" style="display:flex;align-items:center;gap:8px"><input type="checkbox"> ${x}</label>`).join('')}</div></div>
   <div class="card"><p>How should I remind you?</p>${['gentle','balanced','persistent'].map(m=>`<button class="btn w" style="margin:4px 0" data-a="ob" data-m="${m}">${m[0].toUpperCase()+m.slice(1)}</button>`).join('')}</div>`;$('#nav').style.display='none';return}
@@ -259,15 +266,44 @@ function render(){const v=$('#view');
   $('#nav').innerHTML=[['today','◉',t_('today')],['tasks','☰',t_('tasks')],['add','+',''],['focus','◔',t_('focus')],['you','☺',t_('you')]].map(x=>x[0]==='add'?`<button class="plus" data-a="add" aria-label="Quick add">+</button>`:`<button data-a="go" data-t="${x[0]}" ${tab===x[0]?'aria-current="page"':''}><span aria-hidden="true">${x[1]}</span>${x[2]}</button>`).join('');
   document.documentElement.dataset.theme=S.cfg.theme==='system'?'':S.cfg.theme;document.documentElement.dataset.large=S.cfg.large?'on':'off';document.documentElement.lang=S.cfg.lang==='ms'?'ms':'en'}
 
+/* ================= V2 helpers ================= */
+let RT=null;
+const ev=y=>{S.ev.push({y,t:Date.now(),h:new Date().getHours()});if(S.ev.length>500)S.ev.shift()};
+const clash=iso=>iso&&S.cal.find(c=>Date.parse(c.s)<=Date.parse(iso)&&Date.parse(iso)<Date.parse(c.e));
+function parseICS(txt){const out=[];txt=txt.replace(/\r?\n[ \t]/g,'');txt.split('BEGIN:VEVENT').slice(1).forEach(b=>{
+  const g=k=>{const m=b.match(new RegExp('^'+k+'[^:\\n]*:(.*)$','m'));return m?m[1].trim():null};
+  const d=v=>{const m=(v||'').match(/^(\d{4})(\d\d)(\d\d)(?:T(\d\d)(\d\d)(\d\d)?(Z)?)?$/);if(!m)return null;return m[7]?new Date(Date.UTC(+m[1],m[2]-1,+m[3],+m[4],+m[5])):new Date(+m[1],m[2]-1,+m[3],+(m[4]||0),+(m[5]||0))};
+  const s=d(g('DTSTART'));if(!s)return;const e=d(g('DTEND'))||new Date(s.getTime()+3600000);out.push({s:s.toISOString(),e:e.toISOString(),t:(g('SUMMARY')||'Busy').slice(0,60)})});return out.slice(0,2000)}
+const routinesHtml=()=>`<h2>Routines</h2>`+(S.routines.length?S.routines.map(r=>`<div class="card"><p style="margin:0;font-weight:700">${esc(r.title)}</p><p class="small mute">${r.steps.length} steps${r.time?' · daily '+r.time:''}</p><div class="row"><button class="btn p" data-a="rgo" data-id="${r.id}">Start</button><button class="btn" data-a="rdel" data-id="${r.id}">Remove</button></div></div>`).join(''):'<p class="small mute">A routine shows one step at a time. Example: Morning.</p>')+`<div class="row"><button class="btn w" data-a="rnew">New routine</button></div>`;
+function routineSheet(){const r=S.routines.find(x=>x.id===RT.id);if(!r)return;
+  if(RT.i>=r.steps.length){S.level.done++;save();RT=null;sheet(`<h1>${esc(r.title)} complete 🌿</h1><p class="mute">Nice work.</p>`);return}
+  sheet(`<p class="mute">${esc(r.title)} · ${RT.i+1} of ${r.steps.length}</p><div class="card now"><h1>${esc(r.steps[RT.i])}</h1></div><div class="row"><button class="btn ok" data-a="rdone">Done</button><button class="btn" data-a="rskip">Skip</button></div>`)}
+function routineDue(){const n=new Date(),hm=String(n.getHours()).padStart(2,'0')+':'+String(n.getMinutes()).padStart(2,'0'),dk=dayStr(n);
+  S.routines.forEach(r=>{if(r.time&&r.last!==dk&&hm>=r.time){r.last=dk;save();notify({id:'r:'+r.id,title:r.title,steps:[r.steps[0]]})}})}
+function statsCard(){const L=live(),st=S.ev.filter(x=>x.y==='start'),sn=S.ev.filter(x=>x.y==='snooze').length,h={};st.forEach(x=>h[x.h]=(h[x.h]||0)+1);
+  const b=Object.entries(h).sort((x,y)=>y[1]-x[1])[0],r=a=>a.length?Math.round(a.filter(t=>t.startedAt).length/a.length*100):null;
+  const sm=L.filter(t=>t.usedSmall),ns=L.filter(t=>!t.usedSmall&&t.status!=='waiting'),rs=r(sm),rn=r(ns);
+  const ins=rs!=null&&rn!=null&&sm.length>=3&&rs>rn?`<p>Tasks you made smaller get started more often (${rs}% vs ${rn}%).</p><label class="small"><input type="checkbox" data-a="cfg" data-k="autoSmall" ${S.cfg.autoSmall?'checked':''}> Start with the 2-minute step by default</label>`:'<p class="small mute">Insights appear after a few days of use.</p>';
+  return`<div class="card"><p><b>What helps me start?</b></p><p>${st.length} starts · ${Math.round(S.fm/60)} focus minutes · ${L.length?(sn/L.length).toFixed(1):0} snoozes per task</p>${b?`<p class="small mute">You start most often around ${b[0]}:00.</p>`:''}${ins}</div>`}
+function extraCard(){return`<div class="card"><p><b>Reminders when the app is closed</b></p><p class="small mute">Needs sign-in and your VAPID public key (see README).</p><input type="text" data-a="cfg" data-k="vapid" value="${esc(S.cfg.vapid)}" placeholder="VAPID public key" aria-label="VAPID public key"><div class="row"><button class="btn p" data-a="push">Turn on background reminders</button></div></div>
+<div class="card"><p><b>Calendar</b></p><p class="small mute">${S.cal.length?S.cal.length+' events loaded. ':''}Import an .ics file. MOMENTUM only warns about clashes and never changes your calendar. Repeating events are not expanded.</p><input type="file" accept=".ics,text/calendar" data-a="ics" aria-label="Import calendar file"></div>`}
+const b64u=s=>{const r=atob((s+'='.repeat((4-s.length%4)%4)).replace(/-/g,'+').replace(/_/g,'/'));return Uint8Array.from([...r].map(c=>c.charCodeAt(0)))};
+async function pushSync(sub){if(!S.session||!S.cfg.sbUrl)return;sub=sub||await (await navigator.serviceWorker.ready).pushManager.getSubscription();if(!sub)return;const j=sub.toJSON(),c=S.cfg;
+  await fetch(c.sbUrl.replace(/\/$/,'')+'/rest/v1/push_subscriptions?on_conflict=endpoint',{method:'POST',headers:Object.assign(H(),{Prefer:'resolution=merge-duplicates'}),
+   body:JSON.stringify({endpoint:j.endpoint,sub:j,qs:c.qs,qe:c.qe,tz_offset:new Date().getTimezoneOffset(),max_rem:c.mode==='gentle'?1:c.mode==='balanced'?Math.min(2,c.maxRem):c.maxRem,priv:!!c.priv})})}
+async function enablePush(){try{if(!S.session||!S.cfg.vapid)return toast('Sign in and add the VAPID key first');if(!('PushManager'in window))return toast('Push not supported here. On iPhone, add to Home Screen first.');
+  if(await Notification.requestPermission()!=='granted')return toast('Notifications blocked');const reg=await navigator.serviceWorker.ready;
+  const sub=(await reg.pushManager.getSubscription())||await reg.pushManager.subscribe({userVisibleOnly:true,applicationServerKey:b64u(S.cfg.vapid)});await pushSync(sub);toast('Background reminders on')}catch(e){toast('Could not turn on push: '+(e.message||e))}}
+
 /* ================= Events ================= */
 document.addEventListener('click',async e=>{const b=e.target.closest('[data-a]');if(!b||b.tagName==='SELECT'||b.type==='checkbox'||b.type==='time'||b.type==='text')return;const a=b.dataset.a,id=b.dataset.id,t=id&&byId(id);
   const A={go:()=>go(b.dataset.t),add:()=>sheetAdd(),close:closeSheet,cancelpv:()=>{PV=null;closeSheet()},create:createFromPreview,
    plan:()=>{const v=$('#qa').value.trim();if(v)plan(v,b.dataset.m)},clip:async()=>{try{$('#qa').value=await navigator.clipboard.readText()}catch(x){toast('Paste with long-press instead')}},
    mic:()=>{const R=window.SpeechRecognition||window.webkitSpeechRecognition;if(!R)return toast('Voice not supported here');const r=new R();r.lang=S.cfg.lang==='ms'?'ms-MY':'en-MY';r.onresult=ev=>{$('#qa').value+=ev.results[0][0].transcript};r.start()},
-   go25:()=>startFocus(id,25*60,'focus'),two:()=>startFocus(id,120,'two'),fin:()=>{closeSheet();if(F&&F.id===id){F=null;clearInterval(startFocus.i)}complete(id)},
+   go25:()=>startFocus(id,25*60,'focus'),two:()=>startFocus(id,120,'two'),fin:()=>{closeSheet();if(F&&F.id===id){if(!F.over)S.fm+=Math.round((F.total*1000-(F.paused!=null?F.paused:Math.max(0,F.end-Date.now())))/1000);F=null;clearInterval(startFocus.i)}complete(id)},
    sm:()=>breakDown(id),steps:()=>sheet(`<h1>${esc(t.title)}</h1>`+t.steps.map((s,i)=>`<div class="card">${i+1}. ${esc(s)}</div>`).join('')),
    skip:()=>{S.skip.push(id);save();render()},snz:()=>snoozeSheet(id),
-   sn:()=>{t.remindAt=new Date(Date.now()+b.dataset.m*60000).toISOString();t.remCount=0;t.snooze=(t.snooze||0)+1;touch(t);closeSheet();toast('Snoozed '+b.dataset.m+' min');render()},
+   sn:()=>{if(!t.origRemind)t.origRemind=t.remindAt;ev('snooze');t.remindAt=new Date(Date.now()+b.dataset.m*60000).toISOString();t.remCount=0;t.snooze=(t.snooze||0)+1;touch(t);closeSheet();toast('Snoozed '+b.dataset.m+' min');render()},
    blk:()=>{t.blocker=b.dataset.b==='Too big'?'big':b.dataset.b;touch(t);toast(t.blocker==='big'?'Next time: just the first step':'Noted')},
    en:()=>{S.cfg.energy=S.cfg.energy===b.dataset.v?null:b.dataset.v;save();render()},
    yes:()=>{t.status='open';touch(t);closeSheet();render()},no:()=>{t.status='cancelled';touch(t);closeSheet();render()},
@@ -278,15 +314,28 @@ document.addEventListener('click',async e=>{const b=e.target.closest('[data-a]')
    ob:()=>{S.cfg.mode=b.dataset.m;S.onboarded=true;save();render();sheetAdd()},mine:()=>{t.conflict=false;t.baseV=null;touch(t);closeSheet()},theirs:()=>{Object.assign(t,t.remote||{});t.conflict=false;t.dirty=false;delete t.remote;save();closeSheet();render()},
    in:()=>auth('in',$('#em').value,$('#pw').value),up:()=>auth('up',$('#em').value,$('#pw').value),out:()=>{S.session=null;save();render()},syncnow:()=>{S.cfg.lastSync=null;sync()},
    exp:()=>{const u=URL.createObjectURL(new Blob([JSON.stringify(S.tasks,null,1)],{type:'application/json'}));const l=document.createElement('a');l.href=u;l.download='momentum-tasks.json';l.click()},
+   try:()=>{const d=new Date();d.setHours(20,0,0,0);if(d<=new Date())d.setDate(d.getDate()+1);t.remindAt=d.toISOString();t.snooze=0;t.remCount=0;t.adaptDismissed=true;touch(t);toast('Trying 8 PM');render()},
+   keept:()=>{t.adaptDismissed=true;touch(t);render()},
+   aft:()=>{const p=PV.out.tasks[+b.dataset.i],c=clash(p.scheduledAt);if(c){p.scheduledAt=p.remindAt=c.e;p.day=dayStr(new Date(c.e))}sheetPreview()},
+   push:()=>enablePush(),rnew:()=>sheet(`<h1>New routine</h1><input type="text" id="rt" placeholder="Morning" aria-label="Routine name"><p></p><textarea id="rs" placeholder="One step per line" aria-label="Steps"></textarea><p class="small mute">Daily reminder time (optional)</p><input type="time" id="rm" aria-label="Reminder time"><div class="row"><button class="btn p" data-a="rsave">Save routine</button></div>`),
+   rsave:()=>{const st=$('#rs').value.split('\n').map(x=>x.trim()).filter(Boolean).slice(0,15);if(!st.length)return toast('Add at least one step');S.routines.push({id:uid(),title:$('#rt').value.trim()||'Routine',steps:st,time:$('#rm').value||''});save();closeSheet();render()},
+   rgo:()=>{RT={id,i:0};S.level.starts++;ev('start');routineSheet()},rdone:()=>{RT.i++;routineSheet()},rskip:()=>{RT.i++;routineSheet()},
+   rdel:()=>{if(confirm('Remove this routine?')){S.routines=S.routines.filter(r=>r.id!==id);save();render()}},
    wipe:()=>{if(confirm('Delete saved original texts?')){S.tasks.forEach(x=>{if(x.source){x.source=null;x.dirty=true}});save();toast('Originals deleted')}}};
   if(A[a]){e.preventDefault();A[a]()}});
 document.addEventListener('change',e=>{const b=e.target,a=b.dataset.a;if(!a)return;
-  if(a==='cfg'){const k=b.dataset.k;S.cfg[k]=b.type==='checkbox'?b.checked:(k==='maxRem'?+b.value:b.value);save();if(['lang','theme','large'].includes(k))render()}
+  if(a==='ics'){const f=b.files&&b.files[0];if(f)f.text().then(x=>{S.cal=parseICS(x);save();toast(S.cal.length+' events loaded');render()});return}
+  if(a==='cfg'){const k=b.dataset.k;S.cfg[k]=b.type==='checkbox'?b.checked:(k==='maxRem'?+b.value:b.value);save();if(['lang','theme','large'].includes(k))render();if(['qs','qe','priv','maxRem','mode'].includes(k))pushSync().catch(()=>{})}
   else if(PV){const i=+b.dataset.i;if(a==='tog'){PV.on[i]=b.checked;sheetPreview()}else if(a==='ttl')PV.out.tasks[i].title=b.value.slice(0,120);else if(a==='keep'){PV.keep=b.checked}
    else if(a==='rem'){PV.rem[i]=b.value?atTime(PV.out.tasks[i].day,...b.value.split(':').map(Number)).toISOString():null}}});
-function route(m){if(!m||!m.id)return;const t=byId(m.id);if(!t)return;if(m.act==='start')startFocus(t.id,120,'two');else if(m.act==='done')complete(t.id);else if(m.act==='snooze'){tab='today';render();snoozeSheet(t.id)}}
+function route(m){if(!m)return;if(m.act==='add'){sheetAdd();return}if(m.act==='now'){go('today');return}if(!m.id)return;if(String(m.id).startsWith('r:')){RT={id:m.id.slice(2),i:0};routineSheet();return}const t=byId(m.id);if(!t)return;if(m.act==='start')startFocus(t.id,120,'two');else if(m.act==='done')complete(t.id);else if(m.act==='snooze'){tab='today';render();snoozeSheet(t.id)}}
 if('serviceWorker'in navigator){navigator.serviceWorker.register('sw.js').catch(()=>{});navigator.serviceWorker.addEventListener('message',e=>e.data&&e.data.mm&&route(e.data))}
 addEventListener('online',sync);addEventListener('hashchange',()=>{const p=new URLSearchParams(location.hash.slice(1));route({act:p.get('act'),id:p.get('id')})});
-const today=dayStr(new Date());if(S.lastOpen&&S.lastOpen!==today)S.skip=[];S.lastOpen=today;save();
-render();setInterval(checkReminders,20000);checkReminders();sync();
-if(location.hash.includes('act=')){const p=new URLSearchParams(location.hash.slice(1));route({act:p.get('act'),id:p.get('id')})}
+(async()=>{let st=await idbGet('state'),mig=false;if(!st){try{st=JSON.parse(localStorage.getItem('mm')||'null');mig=!!st}catch(e){}}
+  if(st){S=Object.assign({},DEF,st);S.cfg=Object.assign({},DEF.cfg,st.cfg)}
+  const td=dayStr(new Date());if(S.lastOpen&&S.lastOpen!==td)S.skip=[];S.lastOpen=td;save();if(mig)try{localStorage.removeItem('mm')}catch(e){}
+  render();setInterval(checkReminders,20000);checkReminders();sync();pushSync().catch(()=>{});
+  const q=new URLSearchParams(location.search),sh=[q.get('title'),q.get('text'),q.get('url')].filter(Boolean).join('\n');
+  if(sh){history.replaceState(null,'',location.pathname);plan(sh,'paste')}
+  if(location.hash.includes('act=')){const p=new URLSearchParams(location.hash.slice(1));route({act:p.get('act'),id:p.get('id')})}
+})();

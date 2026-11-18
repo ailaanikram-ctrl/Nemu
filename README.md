@@ -22,7 +22,24 @@ Without it, the built-in offline reader (English + Malay basics) is used. Other 
 ## 4. Copilot extension (direction A: Copilot → MOMENTUM)
 `openapi.yaml` describes the actions (createTask, getTodayTasks, getCurrentTask, completeTask, rescheduleTask). Replace YOUR-PROJECT, then build a declarative agent with an API plugin in Microsoft 365 Agents Toolkit. **Verify current Microsoft docs, licensing and OAuth requirements first**: I could not confirm them from here, and they vary by tenant.
 
-## Honest limits of this MVP
-- Reminders fire while the app is open or recently active. Notifications when the app is fully closed need Web Push (server + VAPID); not included. Android Chrome is the most reliable; iOS needs the app added to Home screen.
-- Local storage is localStorage (fine for thousands of tasks); move to IndexedDB later if needed.
-- Not yet built (V2/V3 in your spec): routines, calendar, adaptive reminders, analytics, widgets, share-target.
+## 5. Reminders when the app is closed (Web Push)
+1. Make a VAPID key pair (one time, on any computer with Node): `npx web-push generate-vapid-keys`. You get a public and a private key.
+2. Supabase SQL Editor: run `supabase/schema-v2.sql` (replace the 2 placeholders at the bottom first; enable `pg_cron` and `pg_net` under Database > Extensions).
+3. `supabase secrets set VAPID_PUBLIC=... VAPID_PRIVATE=... VAPID_SUBJECT=mailto:you@example.com CRON_SECRET=<any long random text>`
+4. `supabase functions deploy push-due --no-verify-jwt`
+5. In the app: You > Reminders when the app is closed > paste the **public** key > Turn on background reminders. Do this on each device.
+iPhone: Add to Home Screen first (iOS 16.4+), then open from the Home Screen icon. Android Chrome works directly.
+
+## What is in V2 now
+- **Storage:** IndexedDB (existing localStorage data is moved automatically).
+- **Routines:** Tasks tab > New routine. One step at a time, optional daily reminder time. Stored on this device (not synced yet).
+- **Calendar:** You > Calendar > import an .ics file. Paste & Plan warns when a scheduled time clashes and offers "Schedule after it". Never edits your calendar.
+- **Adaptive reminders:** after 3 snoozes it offers "Try 8 PM?" and you decide.
+- **What helps me start?:** starts, focus minutes, snoozes, best time, and a suggestion if smaller steps work for you.
+- **Share to MOMENTUM:** after installing, share text from WhatsApp/Chrome/etc. and choose MOMENTUM (Android Chrome). iPhone Safari does not support this yet.
+- **Shortcuts:** long-press the home-screen icon for "Paste something" and "What's now?".
+
+## Still limited (cannot be fixed inside a PWA)
+- **Home-screen widgets:** websites cannot create phone widgets. Shortcuts above are the closest. A real widget needs a native app.
+- **Live Google/Outlook calendar sync** needs OAuth with those providers; .ics import is the safe version.
+- Repeating calendar events (RRULE) are not expanded; routines are device-only; background push could not be tested from where this was built, so test steps 5.1-5.5 once and tell me any error text.
