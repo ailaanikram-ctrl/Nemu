@@ -416,18 +416,18 @@ async function enablePush(){try{if(!S.session||!S.cfg.vapid)return toast('Sign i
   const sub=(await reg.pushManager.getSubscription())||await reg.pushManager.subscribe({userVisibleOnly:true,applicationServerKey:b64u(S.cfg.vapid)});await pushSync(sub);toast('Background reminders on')}catch(e){toast('Could not turn on push: '+(e.message||e))}}
 
 /* ================= AI Assistant, powered by Qwen =================
-   The browser never sees a Qwen credential. It calls YOUR Supabase function (/functions/v1/api/ai/*) with the signed-in user's session;
-   the function keeps the provider credentials as server secrets and talks to the model. */
+   The browser never sees a Qwen credential. It calls YOUR Supabase function (/functions/v1/api/ai/*) using the public Supabase anon credential;
+   the function keeps the Qwen credential as a server secret and talks to the model. Deploy the function with --no-verify-jwt. */
 let AIS={status:'unknown',model:'',host:'',msg:''};   // non-sensitive runtime status only: unknown | not_configured | configured | connected | failed
 const aiBase=()=>S.cfg.sbUrl?S.cfg.sbUrl.replace(/\/$/,'')+'/functions/v1/api':null;
-const aiReady=()=>!!(aiBase()&&S.session);
+const aiReady=()=>!!(aiBase()&&S.cfg.sbKey);
 const aiLabel=()=>({connected:'Connected ✓',configured:'Configured. Press Test connection to verify.',not_configured:'Not configured',failed:'Connection failed',unknown:'Not checked yet'}[AIS.status]);
 async function aiFetch(path,body){
-  if(!aiReady()){const e=new Error('Sign in under Settings > Sync first. The AI Assistant only answers signed-in users.');e.code='no_session';throw e}
-  let r;try{r=await fetch(aiBase()+path,{method:body?'POST':'GET',headers:{'Content-Type':'application/json',apikey:S.cfg.sbKey,Authorization:'Bearer '+S.session.access_token},body:body?JSON.stringify(body):undefined})}
+  if(!aiReady()){const e=new Error('Add your Supabase Project URL and anon key under Sync and storage (advanced), then try again.');e.code='not_configured';throw e}
+  let r;try{r=await fetch(aiBase()+path,{method:body?'POST':'GET',headers:{'Content-Type':'application/json',apikey:S.cfg.sbKey,Authorization:'Bearer '+(S.session?.access_token||S.cfg.sbKey)},body:body?JSON.stringify(body):undefined})}
   catch(e){const x=new Error(navigator.onLine===false?'You appear to be offline.':'Could not reach the server. Check your connection.');x.code='network';throw x}
   let j=null;try{j=await r.json()}catch(e){}
-  if(!r.ok){const er=j&&j.error&&typeof j.error==='object'?j.error:{};const x=new Error(typeof er.message==='string'?er.message:r.status===401?'Please sign in again (Settings > Sync).':'The AI Assistant is unavailable. Try again.');
+  if(!r.ok){const er=j&&j.error&&typeof j.error==='object'?j.error:{};const x=new Error(typeof er.message==='string'?er.message:r.status===401?'The Supabase connection was rejected. Check the Project URL and anon key.':'The AI Assistant is unavailable. Try again.');
     x.code=er.code||(r.status===401?'unauthorized':'unavailable');
     if(x.code==='not_configured')AIS.status='not_configured';else if(['auth_failed','model_unavailable','unavailable','timeout','bad_response'].includes(x.code))AIS.status='failed';
     AIS.msg=x.message;throw x}
@@ -436,10 +436,10 @@ async function aiStatus(){if(!aiReady())return;try{const j=await aiFetch('/ai/st
 async function aiTest(){try{const j=await aiFetch('/ai/test',{});AIS.status='connected';AIS.msg='';AIS.model=String(j.model||AIS.model).slice(0,64)}catch(e){}}
 function aiSheet(){sheet(`<h1>Connect Qwen AI</h1><p class="mute">Connect this application to a Qwen model. The administrator must configure the Qwen API key and endpoint securely on the server.</p>
   <div class="card"><p><b>Status:</b> ${esc(aiLabel())}</p>${AIS.model?`<p class="small mute">Model: ${esc(AIS.model)}${AIS.host?' · '+esc(AIS.host):''}</p>`:''}${AIS.msg&&AIS.status!=='connected'?`<p class="small">${esc(AIS.msg)}</p>`:''}
-  ${!aiReady()?'<p class="small">Sign in under Settings > Sync (advanced) first. The server only answers signed-in users.</p>':''}</div>
+  ${!aiReady()?'<p class="small">Add the Supabase Project URL and anon key under Sync and storage (advanced). A personal sign-in is not required for Qwen.</p>':''}</div>
   <div class="row"><button class="btn p" data-a="aitest" ${aiReady()?'':'disabled'}>Test connection</button>${AIS.status==='connected'||AIS.status==='configured'?'<button class="btn" data-a="chat">Open AI Assistant</button>':''}</div>`)}
 const aiCard=()=>`<div class="card"><p><b>AI Assistant</b> <span class="small mute">Powered by Qwen</span></p><p class="small mute">Status: ${esc(aiLabel())}</p>
-  <p class="small mute">Your messages go to your own server, which forwards them to a Qwen model. The API key stays on the server and never reaches this app.</p><div class="row"><button class="btn p" data-a="aiset">Connect Qwen AI</button><button class="btn" data-a="chat">Open chat</button></div></div>`;
+  <p class="small mute">Your messages go to your Supabase Edge Function, which forwards them to Qwen. The Qwen API key stays on the server. No Microsoft or Nemu sign-in is required.</p><div class="row"><button class="btn p" data-a="aiset">Connect Qwen AI</button><button class="btn" data-a="chat">Open chat</button></div></div>`;
 /* ---- chat box ---- */
 let CH={msgs:[],busy:false,err:null,last:null};
 async function chatOpen(){if(!aiReady())return aiSheet();if(AIS.status==='unknown'||AIS.status==='failed')await aiStatus();if(AIS.status==='not_configured')return aiSheet();chatSheet()}

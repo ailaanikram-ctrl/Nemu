@@ -29,7 +29,7 @@ It already works fully offline with no backend (tasks live on the device).
 ## 3. AI Assistant powered by Qwen (optional, server-side)
 **What changed:** the old Microsoft 365 Copilot connection (Application ID, Tenant ID, Microsoft sign-in, Graph calls, Copilot licence) is removed. The app no longer stores any Microsoft token, and old Copilot settings left on a device are deleted automatically on the next open.
 
-**How it works:** browser → *your* Supabase function `api` (`/ai/status`, `/ai/test`, `/ai/chat`, `/ai/extract`) → Qwen. The function checks the signed-in user on every call, applies a per-user rate limit, validates inputs and outputs, and holds the API key as a **server secret**. The browser only ever holds your normal Nemu session, never a Qwen key.
+**How it works:** browser → *your* Supabase function `api` (`/ai/status`, `/ai/test`, `/ai/chat`, `/ai/extract`) → Qwen. The function validates requests and holds the API key as a **server secret**. The browser uses your public Supabase anon key to reach the function, never the Qwen key. A personal Nemu sign-in is not required for AI.
 
 **Prerequisites** (not free: Alibaba Cloud Model Studio bills per use; check current pricing and any free quota for your account and region):
 1. An Alibaba Cloud account with Model Studio enabled.
@@ -58,7 +58,7 @@ It already works fully offline with no backend (tasks live on the device).
 | “took too long” | Slow model or network. Raise `QWEN_TIMEOUT_MS` (max 60000) or pick a faster model. |
 | “unexpected reply” | The model returned empty or non-standard output. Retry or try another model. |
 | “That message could not be processed” (400) | Some models have extra rules. Try `qwen-plus`. |
-| “Please sign in again” | Your Nemu session expired. Sign in under Settings > Sync. |
+| “Supabase connection was rejected” | Check the Supabase Project URL and anon key in Sync and storage (advanced). |
 
 **Decisions you may want to change:** streaming is not used (replies arrive whole, which is simpler and safe). Rate limiting is in memory per function instance; use a table or Redis for strict limits. Chat history lives only in the open chat sheet and is not saved.
 
@@ -83,3 +83,10 @@ iPhone: Add to Home Screen first (iOS 16.4+), then open from the Home Screen ico
 - **Home-screen widgets:** websites cannot create phone widgets. Shortcuts above are the closest. A real widget needs a native app.
 - **Live Google/Outlook calendar sync** needs OAuth with those providers; .ics import is the safe version.
 - Repeating calendar events (RRULE) are not expanded; routines are device-only; background push could not be tested from where this was built, so test steps 5.1-5.5 once and tell me any error text.
+
+
+### Qwen connection fix in this package
+- Qwen no longer depends on a Nemu user session.
+- The Test connection button becomes available after the Supabase Project URL and anon key are entered.
+- Deploy `supabase/functions/api/index.ts` using `supabase functions deploy api --no-verify-jwt`.
+- Because the endpoint is public, restrict `ALLOWED_ORIGIN` to your exact GitHub Pages origin and monitor provider usage. For a public multi-user release, add stronger server-side authentication and persistent rate limiting.
