@@ -1,11 +1,10 @@
-# Actions for a Microsoft 365 Copilot declarative agent (API plugin). Host = your Supabase function URL.
-# Check Microsoft's CURRENT docs/licensing for API plugins and MCP before publishing: availability varies by tenant and licence.
+# Task actions for any authorised tool or agent. Host = your Supabase function URL. Authenticate with the user's Supabase access token.
 openapi: 3.0.1
 info: { title: Nemu, version: "1.0.0", description: "Create and manage the user's tasks. Always confirm with the user before creating multiple tasks." }
 servers: [ { url: "https://YOUR-PROJECT.supabase.co/functions/v1/api" } ]
 components:
-  securitySchemes: { oauth: { type: oauth2, flows: { authorizationCode: { authorizationUrl: "https://YOUR-PROJECT.supabase.co/auth/v1/authorize", tokenUrl: "https://YOUR-PROJECT.supabase.co/auth/v1/token", scopes: {} } } } }
-security: [ { oauth: [] } ]
+  securitySchemes: { bearer: { type: http, scheme: bearer, bearerFormat: JWT } }
+security: [ { bearer: [] } ]
 paths:
   /tasks:
     post: { operationId: createTask, summary: Create one task, requestBody: { required: true, content: { application/json: { schema: { type: object, required: [task], properties: { task: { type: string, maxLength: 120 }, taskBrief: { type: string, maxLength: 240 }, due: { type: string, format: date-time }, taskLink: { type: string, format: uri } } } } } }, responses: { "201": { description: Created } } }

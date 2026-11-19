@@ -4,8 +4,8 @@
 - **Four-field task:** Task, Task Brief, Due, Task Link. Empty fields are hidden, never invented. Links show as “Open link ↗”.
 - **One message = one task** (extra sentences become the brief). Clearly separate jobs (“buy petrol, call Mum, submit…”) are offered as several tasks, with **Keep as one** / **Split into N**. Settings > AI can turn this off.
 - **Composer on Today:** type naturally, review the preview, **Create task**. Follow-ups work in the preview (“Make that Saturday”, “Add this link: https://…”, “Rename to …”, “No due date”).
-- **AI provider interface:** Copilot → your own AI endpoint → offline reader. Every provider’s output is validated; if AI fails you see “temporarily unavailable” and the offline reader or **Create manually** still works.
-- **Copilot is only shown as Connected ✓ after a real test call succeeds** (Settings > Integrations > Test connection).
+- **AI Assistant, powered by Qwen:** the chat box and the message interpreter use a Qwen model through **your own server** (a Supabase Edge Function). Order: Qwen → offline reader. Every AI reply is validated; if AI fails you see “temporarily unavailable” and the offline reader or **Create manually** still works.
+- **“Connected ✓” only appears after a real test call succeeds** (Settings > Integrations > AI Assistant > Connect Qwen AI > Test connection). No Microsoft account or licence is involved anywhere.
 - **Task details** screen (More: Edit, Reschedule, Duplicate, Delete), Focus shows the brief and link, notifications offer **Open & start** when a link exists.
 - **Recurring tasks:** “Every Sunday remind me to…” (daily or weekly; the next one appears when you finish one).
 - **Update prompt:** when a new version is deployed you see “Nemu has been updated. Refresh”.
@@ -26,32 +26,49 @@ It already works fully offline with no backend (tasks live on the device).
 3. In the app: You → Sync and AI → paste both → create account → sign in. Tasks now sync (offline edits queue, conflicts ask you).
    (Authentication → Providers → Email: turn off "Confirm email" while testing.)
 
-## 3. Turn on the AI Inbox brain (optional)
-1. Install Supabase CLI. `supabase functions deploy api`
-2. `supabase secrets set AI_PROVIDER=anthropic AI_KEY=sk-... AI_MODEL=<model>` (key stays on the server, never in the app).
-3. In the app: AI endpoint = `https://YOUR-PROJECT.supabase.co/functions/v1/api/ai/extract`
-Without it, the built-in offline reader (English + Malay basics) is used. Other providers: add one adapter in `providers`.
+## 3. AI Assistant powered by Qwen (optional, server-side)
+**What changed:** the old Microsoft 365 Copilot connection (Application ID, Tenant ID, Microsoft sign-in, Graph calls, Copilot licence) is removed. The app no longer stores any Microsoft token, and old Copilot settings left on a device are deleted automatically on the next open.
 
-## 4. Copilot extension (direction A: Copilot → Nemu)
-`openapi.yaml` describes the actions (createTask, getTodayTasks, getCurrentTask, completeTask, rescheduleTask). Replace YOUR-PROJECT, then build a declarative agent with an API plugin in Microsoft 365 Agents Toolkit. **Verify current Microsoft docs, licensing and OAuth requirements first**: I could not confirm them from here, and they vary by tenant.
+**How it works:** browser → *your* Supabase function `api` (`/ai/status`, `/ai/test`, `/ai/chat`, `/ai/extract`) → Qwen. The function checks the signed-in user on every call, applies a per-user rate limit, validates inputs and outputs, and holds the API key as a **server secret**. The browser only ever holds your normal Nemu session, never a Qwen key.
 
-## 5. Reminders when the app is closed (Web Push)
+**Prerequisites** (not free: Alibaba Cloud Model Studio bills per use; check current pricing and any free quota for your account and region):
+1. An Alibaba Cloud account with Model Studio enabled.
+2. An API key created in the Model Studio console (API Key section). Keys are tied to a region, so use the matching base URL.
+3. A model name your account can use (default `qwen-plus`; confirm the current list in the console).
+
+**Set it up**
+1. Copy `supabase/.env.example` to `supabase/.env` and fill in `QWEN_API_KEY`, `QWEN_BASE_URL`, `QWEN_MODEL`. The example has placeholders only, and `.env` is git-ignored. `QWEN_WORKSPACE_ID` is needed **only** if your base URL contains `{WorkspaceId}`.
+2. `supabase secrets set --env-file supabase/.env`
+3. `supabase functions deploy api`
+4. In production also set `ALLOWED_ORIGIN=https://YOUR-NAME.github.io`.
+5. In the app: Settings > Sync (advanced) > sign in. Then Settings > Integrations > AI Assistant > **Connect Qwen AI** > **Test connection**. The status reads Not configured, Configured, Connected ✓ or Connection failed. It never shows a key.
+
+**Run locally:** `npm run serve` (same as `python3 -m http.server 8080`) and open http://localhost:8080. Functions: `supabase functions serve api --env-file supabase/.env`.
+**Run the tests:** `npm test` (Node 22.18 or newer, nothing to install).
+
+**Never** commit or share `supabase/.env`, and never paste the key into the app, a screenshot or a chat. If a key leaks, revoke it in the console and create a new one.
+
+**Troubleshooting**
+| Message in the app | Likely cause and fix |
+|---|---|
+| Not configured | Secrets missing, or `QWEN_BASE_URL` invalid (must be https on an `aliyuncs.com` host). Re-run `supabase secrets set` and redeploy. |
+| “rejected its credentials” (401/403 from Qwen) | Wrong or revoked key, or the key belongs to a different region than the base URL. |
+| “model or endpoint was not found” (404) | Wrong `QWEN_MODEL`, or the base URL path is wrong. It should end in `/compatible-mode/v1`. |
+| “busy or a limit was reached” (429) | Provider quota or rate limit, or more than 20 requests a minute from one user. Wait and retry. |
+| “took too long” | Slow model or network. Raise `QWEN_TIMEOUT_MS` (max 60000) or pick a faster model. |
+| “unexpected reply” | The model returned empty or non-standard output. Retry or try another model. |
+| “That message could not be processed” (400) | Some models have extra rules. Try `qwen-plus`. |
+| “Please sign in again” | Your Nemu session expired. Sign in under Settings > Sync. |
+
+**Decisions you may want to change:** streaming is not used (replies arrive whole, which is simpler and safe). Rate limiting is in memory per function instance; use a table or Redis for strict limits. Chat history lives only in the open chat sheet and is not saved.
+
+## 4. Reminders when the app is closed (Web Push)
 1. Make a VAPID key pair (one time, on any computer with Node): `npx web-push generate-vapid-keys`. You get a public and a private key.
 2. Supabase SQL Editor: run `supabase/schema-v2.sql` (replace the 2 placeholders at the bottom first; enable `pg_cron` and `pg_net` under Database > Extensions).
 3. `supabase secrets set VAPID_PUBLIC=... VAPID_PRIVATE=... VAPID_SUBJECT=mailto:you@example.com CRON_SECRET=<any long random text>`
 4. `supabase functions deploy push-due --no-verify-jwt`
 5. In the app: You > Reminders when the app is closed > paste the **public** key > Turn on background reminders. Do this on each device.
 iPhone: Add to Home Screen first (iOS 16.4+), then open from the Home Screen icon. Android Chrome works directly.
-
-## 6. Microsoft 365 Copilot as the task interpreter (preview)
-Uses Microsoft's **Copilot Chat API** (Graph `beta`). Microsoft's docs say beta APIs are not supported for production use, it needs a **work or school account with a Microsoft 365 Copilot licence** (personal Microsoft accounts are not supported), and it returns text only, so Nemu asks Copilot for JSON and validates it before showing the preview.
-1. Entra admin center > App registrations > New registration. Account type: your org only (or multi-tenant if you need it).
-2. Redirect URI: platform **Single-page application (SPA)**, value = your app URL, e.g. `https://YOUR-NAME.github.io/nemu/` (must match exactly, trailing slash included).
-3. API permissions > Microsoft Graph > **Delegated**: `Sites.Read.All, Mail.Read, People.Read.All, OnlineMeetingTranscript.Read.All, Chat.Read, ChannelMessage.Read.All, ExternalItem.Read.All`. Microsoft requires all seven for this API. Then an admin must **Grant admin consent**.
-4. Copy the **Application (client) ID** and **Directory (tenant) ID**.
-5. App > You > Microsoft 365 Copilot: paste both > Connect Microsoft > sign in > tick "Use Copilot to understand pasted text".
-The prompt tells Copilot not to use web search, files, mail or chats, and the pasted text is wrapped as untrusted data. You still approve every task before it is saved. If Copilot fails, the app falls back to the offline reader.
-Privacy: when this is on, the text you paste goes to Microsoft 365 Copilot (the sheet says so each time). The seven permissions are broad read access that Microsoft requires for the API itself; Nemu does not read your mail or files.
 
 ## What is in V2 now
 - **Storage:** IndexedDB (existing localStorage data is moved automatically).

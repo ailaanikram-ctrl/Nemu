@@ -1,5 +1,5 @@
 /* Nemu service worker. Relative paths only, so it works under a GitHub Pages subpath (/repo/). */
-const V='nemu-v3',FILES=['./','index.html','style.css','app.js','manifest.webmanifest','icon.svg'];
+const V='nemu-v4',FILES=['./','index.html','style.css','app.js','manifest.webmanifest','icon.svg'];
 self.addEventListener('install',e=>{e.waitUntil(caches.open(V).then(c=>c.addAll(FILES)))});   // no skipWaiting: the app asks the user to refresh
 self.addEventListener('activate',e=>{e.waitUntil(caches.keys().then(k=>Promise.all(k.filter(x=>x!==V).map(x=>caches.delete(x)))).then(()=>clients.claim()))});
 self.addEventListener('message',e=>{if(e.data==='SKIP')self.skipWaiting()});

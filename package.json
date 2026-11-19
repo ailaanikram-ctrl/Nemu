@@ -1,0 +1,2 @@
+{ "name": "nemu", "private": true, "type": "module", "version": "2.1.0", "description": "Nemu PWA (static) + Supabase Edge Functions. No build step, no dependencies.",
+  "scripts": { "test": "node --test \"tests/*.test.*\"", "serve": "python3 -m http.server 8080" }, "engines": { "node": ">=22.18" } }
