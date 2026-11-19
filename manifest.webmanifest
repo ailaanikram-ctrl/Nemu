@@ -1,12 +1,12 @@
 {
- "name": "MOMENTUM",
- "short_name": "MOMENTUM",
- "description": "Don't just remember it. Start it.",
+ "name": "Nemu",
+ "short_name": "Nemu",
+ "description": "Tell it once. Start when it matters.",
  "start_url": "./index.html",
  "scope": "./",
  "display": "standalone",
- "background_color": "#F8FAFC",
- "theme_color": "#6366F1",
+ "background_color": "#F7F8FC",
+ "theme_color": "#5B5CE2",
  "icons": [
   {
    "src": "icon.svg",
@@ -27,7 +27,7 @@
  },
  "shortcuts": [
   {
-   "name": "Paste something",
+   "name": "Tell Nemu",
    "url": "./index.html#act=add"
   },
   {
